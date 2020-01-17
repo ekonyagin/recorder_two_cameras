@@ -44,13 +44,12 @@ int MsgDecode(const std::string& data,
 }
 
 
-XI_RETURN InitializeCameras(HANDLE& cam1, HANDLE& cam2, const int& fps) {
+XI_RETURN InitializeCameras(HANDLE& cam1, const int& fps) {
 	XI_RETURN stat = XI_OK;
 
 	xiSetParamInt(0, XI_PRM_AUTO_BANDWIDTH_CALCULATION, XI_OFF);
 	// open the cameras
-	xiOpenDevice(0, &cam1);
-	xiOpenDevice(1, &cam2);
+	
 	
 	// set interface data rate
 	int interface_data_rate=2400; // when USB3 hub is used
@@ -62,21 +61,17 @@ XI_RETURN InitializeCameras(HANDLE& cam1, HANDLE& cam2, const int& fps) {
 	camera_data_rate -= camera_data_rate*SAFE_MARGIN_PERCENTS/100;
 	// set data rate
 	xiSetParamInt(cam1, XI_PRM_LIMIT_BANDWIDTH , camera_data_rate);
-	xiSetParamInt(cam2, XI_PRM_LIMIT_BANDWIDTH , camera_data_rate);
+	
 
-	stat = xiSetParamInt(cam1, XI_PRM_IMAGE_DATA_FORMAT, XI_RAW8);
-	HandleResult(stat,"xiSetParam (image format)");
 	stat = xiSetParamInt(cam1, XI_PRM_IMAGE_DATA_FORMAT, XI_RAW8);
 	HandleResult(stat,"xiSetParam (image format)");
 	
+	
 	xiSetParamInt(cam1, XI_PRM_ACQ_TIMING_MODE, XI_ACQ_TIMING_MODE_FRAME_RATE);
 	xiSetParamFloat(cam1, XI_PRM_FRAMERATE, fps);
-	xiSetParamInt(cam2, XI_PRM_ACQ_TIMING_MODE, XI_ACQ_TIMING_MODE_FRAME_RATE);
-	xiSetParamFloat(cam2, XI_PRM_FRAMERATE, fps);
+	
 
 	stat = xiSetParamInt(cam1, XI_PRM_EXPOSURE, 10000);
-	HandleResult(stat,"xiSetParam (exposure set)");
-	stat = xiSetParamInt(cam2, XI_PRM_EXPOSURE, 10000);
 	HandleResult(stat,"xiSetParam (exposure set)");
 
 	return XI_OK;
@@ -133,7 +128,7 @@ XI_RETURN MakeRecording(const std::string& name,
 		const char *c1 = fname1.c_str();
 		const char *c2 = fname2.c_str();
 		
-		time(&t_current);
+		ftime(&t_current);
 		
 		if (timedelta(t_current, t_start) >= (float)(1.0/fps)){
 			t_start = t_current;
@@ -168,7 +163,12 @@ void LaunchRec(const std::string& name,
 	// Retrieving a handle to the camera device
 	printf("Opening cameras...\n");
 	
-	stat = InitializeCameras(cam1, cam2, fps);
+	xiOpenDevice(0, &cam1);
+	xiOpenDevice(1, &cam2);
+
+	stat = InitializeCameras(cam1, fps);
+	HandleResult(stat,"InitializeCameras");
+	stat = InitializeCameras(cam2, fps);
 	HandleResult(stat,"InitializeCameras");
 	
 	std::cout << "Starting acquisition..." << std::endl;
