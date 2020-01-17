@@ -25,6 +25,12 @@ int MsgDecode(const std::string& data,
 			  int& fps){
     std::stringstream container(data);
     container >> name;
+    if (name == "close"){
+        	//shutdown(server_fd, SHUT_RDWR);
+        	//close(new_socket);
+        	//close(server_fd);
+        	exit(0);
+    }
     container >> length;
     container >> fps;
     return 0;
@@ -64,6 +70,28 @@ XI_RETURN InitializeCameras(HANDLE& cam1, HANDLE& cam2) {
 	return XI_OK;
 }
 
+void SaveFiles(const std::string& name){
+	std::string create_dir1 = "mkdir " + name + "cam1";
+	std::string create_dir2 = "mkdir " + name + "cam2";
+	
+	const char *dir1 = create_dir1.c_str();
+	const char *dir2 = create_dir2.c_str();
+	
+	system(dir1);
+	system(dir2);
+
+	std::string move1 = "mv cam1*.dng "+name+"cam1/";
+	std::string move2 = "mv cam2*.dng "+name+"cam2/";
+	
+	const char *mv1 = move1.c_str();
+	const char *mv2 = move2.c_str();
+	
+	system(mv1);
+	system(mv2);
+
+	return;
+}
+
 XI_RETURN MakeRecording(const std::string& name, 
 						const int& rec_length, 
 						const int& fps, 
@@ -78,14 +106,16 @@ XI_RETURN MakeRecording(const std::string& name,
 	
 	XI_RETURN stat;
 	time_t begin, end;
-	double seconds=0;
+	double seconds = 0.;
 	
 	time(&begin);
 	int i = 0;
 	while(seconds < (float)rec_length){
+		printf("%f\n", seconds);
 		std::string fname1 = "cam1" + name + std::to_string(10000+i) + ".dng";
-		const char *c1 = fname1.c_str();
 		std::string fname2 = "cam2" + name + std::to_string(10000+i) + ".dng";
+		
+		const char *c1 = fname1.c_str();
 		const char *c2 = fname2.c_str();
 
 		stat = xiGetImage(cam1, 5000, &img1);
@@ -115,7 +145,7 @@ void LaunchRec(const std::string& name,
 	XI_RETURN stat = XI_OK;
 	
 	// Retrieving a handle to the camera device
-	std::cout << "Opening cameras..." << std::endl;
+	printf("Opening cameras...\n");
 	
 	stat = InitializeCameras(cam1, cam2);
 	HandleResult(stat,"InitializeCameras");
@@ -137,6 +167,7 @@ void LaunchRec(const std::string& name,
 	xiCloseDevice(cam1);
 	xiCloseDevice(cam2);
 
+	SaveFiles(name);
 	std::cout << "Done" << std::endl;
 }
 
@@ -149,8 +180,7 @@ void Server(){
     char *hello = "RECORDING BEING LAUNCHED\n";
 
     // Creating socket file descriptor 
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) 
-    { 
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0){ 
         perror("socket failed"); 
         exit(EXIT_FAILURE); 
     } 
@@ -165,18 +195,16 @@ void Server(){
         perror("bind failed"); 
         exit(EXIT_FAILURE); 
     }
-    std::cout<<"Welcome to remote NUC recorder at port " << PORT << "\n";
+    printf("Welcome to remote NUC recorder at port  %d\n", PORT);
 
     while(1) {
-        if (listen(server_fd, 3) < 0) 
-        { 
+        if (listen(server_fd, 3) < 0){ 
             perror("listen"); 
             exit(EXIT_FAILURE); 
         }
 
         if ((new_socket = accept(server_fd, (struct sockaddr *)&address,  
-                           (socklen_t*)&addrlen))<0) 
-        { 
+                           (socklen_t*)&addrlen))<0) { 
             perror("accept"); 
             exit(EXIT_FAILURE); 
         }
@@ -184,12 +212,16 @@ void Server(){
         printf("ACCEPTING...\n");
         send(new_socket , "Ready\n" , 7 , 0 );
         
-        valread = read( new_socket , buffer, 1024); 
+        valread = read(new_socket , buffer, 1024); 
         int length = 0, fps = 0;
         std::string name;
         
         MsgDecode(buffer, name, length, fps);
+        
         LaunchRec(name, length, fps);
+        send(new_socket , "Ready\n" , 7 , 0 );
+    	//shutdown(server_fd, SHUT_RDWR);
+        close(new_socket);
     }
 }
 
