@@ -11,6 +11,7 @@
 #include <string.h> 
 #include <memory.h>
 #include <time.h>
+#include <sys/timeb.h>
 #include <m3api/xiapi_dng_store.h> // Linux, OSX
 
 
@@ -18,6 +19,12 @@
 #define CAMERAS_ON_SAME_CONTROLLER 2
 #define SAFE_MARGIN_PERCENTS 10
 #define PORT 50009
+
+float timedelta(const timeb& finish, const timeb& start){
+	float t_diff = (float) (1.0 * (finish.time - start.time)
+        	+ 0.001*(finish.millitm - start.millitm));
+	return t_diff;
+}
 
 int MsgDecode(const std::string& data, 
 			  std::string& name, 
@@ -37,7 +44,7 @@ int MsgDecode(const std::string& data,
 }
 
 
-XI_RETURN InitializeCameras(HANDLE& cam1, HANDLE& cam2) {
+XI_RETURN InitializeCameras(HANDLE& cam1, HANDLE& cam2, const int& fps) {
 	XI_RETURN stat = XI_OK;
 
 	xiSetParamInt(0, XI_PRM_AUTO_BANDWIDTH_CALCULATION, XI_OFF);
@@ -62,6 +69,11 @@ XI_RETURN InitializeCameras(HANDLE& cam1, HANDLE& cam2) {
 	stat = xiSetParamInt(cam1, XI_PRM_IMAGE_DATA_FORMAT, XI_RAW8);
 	HandleResult(stat,"xiSetParam (image format)");
 	
+	xiSetParamInt(cam1, XI_PRM_ACQ_TIMING_MODE, XI_ACQ_TIMING_MODE_FRAME_RATE);
+	xiSetParamFloat(cam1, XI_PRM_FRAMERATE, fps);
+	xiSetParamInt(cam2, XI_PRM_ACQ_TIMING_MODE, XI_ACQ_TIMING_MODE_FRAME_RATE);
+	xiSetParamFloat(cam2, XI_PRM_FRAMERATE, fps);
+
 	stat = xiSetParamInt(cam1, XI_PRM_EXPOSURE, 10000);
 	HandleResult(stat,"xiSetParam (exposure set)");
 	stat = xiSetParamInt(cam2, XI_PRM_EXPOSURE, 10000);
@@ -100,16 +112,19 @@ XI_RETURN MakeRecording(const std::string& name,
 	XI_IMG img1, img2;
 
 	memset(&img1,0,sizeof(img1));
-	img1.size = sizeof(XI_IMG);
 	memset(&img2,0,sizeof(img2));
+	img1.size = sizeof(XI_IMG);
 	img2.size = sizeof(XI_IMG);
 	
 	XI_RETURN stat;
 	time_t begin, end;
+	float t_diff = 0;
+	struct timeb t_start, t_current;
 	double seconds = 0.;
 	
-	time(&begin);
 	int i = 0;
+	time(&begin);
+	ftime(&t_start);
 	while(seconds < (float)rec_length){
 		printf("%f\n", seconds);
 		std::string fname1 = "cam1" + name + std::to_string(10000+i) + ".dng";
@@ -117,22 +132,28 @@ XI_RETURN MakeRecording(const std::string& name,
 		
 		const char *c1 = fname1.c_str();
 		const char *c2 = fname2.c_str();
-
-		stat = xiGetImage(cam1, 5000, &img1);
-		HandleResult(stat,"xiGetImage (img)");
-		stat = xiGetImage(cam2, 5000, &img2);
-		HandleResult(stat,"xiGetImage (img)");
 		
-		XI_DNG_METADATA metadata1, metadata2;
-		xidngFillMetadataFromCameraParams(cam1, &metadata1);
-		xidngFillMetadataFromCameraParams(cam2, &metadata2);
+		time(&t_current);
 		
-		stat = xidngStore(c1, &img1, &metadata1);
-		stat = xidngStore(c2, &img2, &metadata2);
-		
-		time(&end);
-      	seconds = difftime(end, begin);
-      	++i;
+		if (timedelta(t_current, t_start) >= (float)(1.0/fps)){
+			t_start = t_current;
+			
+			stat = xiGetImage(cam1, 5000, &img1);
+			HandleResult(stat,"xiGetImage (img)");
+			stat = xiGetImage(cam2, 5000, &img2);
+			HandleResult(stat,"xiGetImage (img)");
+			
+			XI_DNG_METADATA metadata1, metadata2;
+			xidngFillMetadataFromCameraParams(cam1, &metadata1);
+			xidngFillMetadataFromCameraParams(cam2, &metadata2);
+			
+			stat = xidngStore(c1, &img1, &metadata1);
+			stat = xidngStore(c2, &img2, &metadata2);
+			
+			time(&end);
+	      	seconds = difftime(end, begin);
+	      	++i;
+      	}
 	}
 	return stat;
 }
@@ -147,7 +168,7 @@ void LaunchRec(const std::string& name,
 	// Retrieving a handle to the camera device
 	printf("Opening cameras...\n");
 	
-	stat = InitializeCameras(cam1, cam2);
+	stat = InitializeCameras(cam1, cam2, fps);
 	HandleResult(stat,"InitializeCameras");
 	
 	std::cout << "Starting acquisition..." << std::endl;
